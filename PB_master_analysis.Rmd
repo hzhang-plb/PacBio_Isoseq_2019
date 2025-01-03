@@ -7,7 +7,7 @@ date: "2019-12-11"
 # PacBio Data Analysis Notes - Data formatting, mapping and SQANTI analysis
 
 ```{}
-##	Take a look at the files I need (downloaded from Bioshare, see Maloof_Lab_server.doc for downloading methods). (Here’s an example from Lib_A_2)
+##	First, check the file structures. Here’s an example from Lib_A_2:
 -rw-r--r-- 1 hongtaozhang root   31 Apr 13  2018 robots.txt
 -rw-r--r-- 1 hongtaozhang root 3.6K Dec 20 19:35 ccs.report.json
 -rw-r--r-- 1 hongtaozhang root 4.4G Dec 20 21:00 ccs.fastq.zip
