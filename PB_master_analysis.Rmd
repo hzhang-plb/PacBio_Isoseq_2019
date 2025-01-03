@@ -1,0 +1,225 @@
+---
+title: "PacBio master analysis notes"
+output: html_document
+date: "2019-12-11"
+---
+
+# PacBio Data Analysis Notes - Data formatting, mapping and SQANTI analysis
+
+```{}
+##	Take a look at the files I need (downloaded from Bioshare, see Maloof_Lab_server.doc for downloading methods). (Here’s an example from Lib_A_2)
+-rw-r--r-- 1 hongtaozhang root   31 Apr 13  2018 robots.txt
+-rw-r--r-- 1 hongtaozhang root 3.6K Dec 20 19:35 ccs.report.json
+-rw-r--r-- 1 hongtaozhang root 4.4G Dec 20 21:00 ccs.fastq.zip
+-rw-r--r-- 1 hongtaozhang root 299M Dec 21 06:10 flnc.report.csv
+-rw-r--r-- 1 hongtaozhang root 3.9G Dec 21 06:10 flnc.bam
+-rw-r--r-- 1 hongtaozhang root 8.8K Dec 22 14:48 barcode_isoseq3.report.json
+-rw-r--r-- 1 hongtaozhang root 208M Dec 23 23:01 polished.cluster_report.csv
+-rw-r--r-- 1 hongtaozhang root 6.2M Dec 23 23:01 summary.csv
+-rw-r--r-- 1 hongtaozhang root 867M Dec 23 23:04 hq_transcripts.fastq
+-rw-r--r-- 1 hongtaozhang root  16M Dec 23 23:04 lq_transcripts.fastq
+-rw-r--r-- 1 hongtaozhang root 444M Dec 23 23:08 hq_transcripts.fasta
+-rw-r--r-- 1 hongtaozhang root 8.2M Dec 23 23:08 lq_transcripts.fasta
+-rw-r--r-- 1 hongtaozhang root 2.1K Dec 23 23:09 isoseq3.report.json
+-rw------- 1 hongtaozhang root 3.0K Jan  7 10:12 wget_index.html.tmp
+```
+
+# 1. Map reads (hq_transcripts.fastq) to reference genome 
+## 1.1 Format data
+- change chromosome name from ‘>1’ into ‘>Chr1’, so that it will have the same format as .gff ref annotation file:
+```{bash, eval = FALSE}
+sed 's/^>/>Chr/' Reference_Genome/TAIR10_chr_all.fa | sed 's/mitochondria/M/' | sed 's/chloroplast/C/' > Reference_Genome/TAIR10_chr_all.Chr.fa
+```
+
+## 1.2 Map
+```{bash, eval = FALSE}
+minimap2 -ax splice -t 30 -uf --secondary=no -C5 \
+TAIR10_chr_all.Chr.fa hq_transcripts.fastq > hq_transcripts.fastq.sam
+```
+
+## 1.3 Sort
+```{bash, eval = FALSE}
+sort -k 3,3 -k 4,4n hq_transcripts.fastq.sam > hq_transcripts.fastq.sorted.sam
+```
+
+# 2. Collapse
+## 2.1 Activate Anaconda and install cDNA_Cupcake
+```{bash, eval = FALSE}
+export PATH="/home/anacondaPy37/bin:$PATH"
+conda -V
+conda update conda
+conda create -n anaCogent python=3.7 anaconda
+# remember to log out and log back in
+export PATH="/home/anacondaPy37/bin:$PATH"
+conda activate anaCogent
+```
+
+- After having anaconda environment created: (once you have cDNA_Cupcake installed, these are the only lines you need to run every time)
+```{bash, eval = FALSE}
+# activate anaconda environment, here I created mine as 'naruto'
+$ source ~/.bash, eval = FALSErc
+$ conda activate naruto
+(naruto)$ git clone https://github.com/Magdoll/cDNA_Cupcake.git
+(naruto)$ cd cDNA_Cupcake
+# if you use Python 2.7, you need to switch branch, if you use Python 3.7, you stay with master branch
+(anaCogent)$ git checkout origin/Py2_v8.7.x
+(naruto)$ python setup.py build
+(naruto) $ python setup.py install
+
+# After installation is complete, confirm the Cupcake scripts are in your bin:
+(naruto)$ which collapse_isoforms_by_sam.py 
+/Network/Servers/avalanche.plb.ucdavis.edu/Volumes/Mammoth/Users/hongtaozhang/anaconda3/envs/naruto/bin/collapse_isoforms_by_sam.py
+```
+
+## 2.2 Now we can run the collapse script: (take Library A_2 as an example)
+```{bash, eval = FALSE}
+collapse_isoforms_by_sam.py --input hq_transcripts.fastq --fq \
+-s hq_transcripts.fastq.sorted.sam --dun-merge-5-shorter -o A_2
+```
+
+# 3. Obtain associated count information 
+```{bash, eval = FALSE}
+get_abundance_post_collapse.py A_2.collapsed polished.cluster_report.csv
+```
+
+- example output for polished.cluster_report.csv:
+
+| cluster_id | read_id | read_type |
+|:----------:|:--------:|:-------|  
+transcript/0 | m64012_190727_053041/105120134/ccs | FL
+transcript/0 | m64012_190727_053041/21628950/ccs | FL
+
+# 4. Demultiplex Iso-Seq 1 and Iso-Seq 3 jobs with a reference genome
+## 4.1 First, copy related python pipelines into work directory: 
+```{bash, eval = FALSE}
+cd PB399_9plexIsoSeq_B_2/demux
+mkdir test_dir
+cd test_dir/
+cp ~/packages/cDNA_cupcake/post_isoseq_cluster/demux*py .
+```
+
+## 4.2 Mapp_fl_count w/ genome: 
+```{bash, eval = FALSE}
+python test_dir/demux_isoseq_with_genome.py --mapped_fastq ../collapse/A_2.collapsed.rep.fq --read_stat ../collapse/A_2.collapsed.read_stat.txt --classify_csv ../Bioshare_data/flnc.report.csv -o A_2.mapped_fl_count_w_genome.txt
+```
+
+## 4.3 Create demultiplexed GFF and FASTA/FASTQ files after demultiplexing
+```{bash, eval = FALSE}
+# First, use minimap2 to map A_2.collapsed.rep.fq to reference genome to create a .sam file:  (not needed anymore in demux_by_barcode_groups.py V10.0.0, use .gff instead)
+minimap2 -ax splice -t 30 -uf --secondary=no -C5 \
+~/Downloads/Reference_Genome/TAIR10_chr_all.chr.fa ../collapse/A_2.collapsed.rep.fq > A_2.collapsed.rep.fq.sam
+
+python ../test_dir/demux_by_barcode_groups.py --pooled_fastx ../../collapse/A_2.collapsed.rep.fq ../../minimap2_Lib_A_2/A_2.collapsed.rep.fq.sam ../A_2.mapped_fl_count_w_genome.txt A_2_output_demux "('bc1001_5p--bc1001_3p','barcode1'),('bc1002_5p--bc1002_3p','barcode2'),('bc1003_5p--bc1003_3p','barcode3'),('bc1004_5p--bc1004_3p','barcode4'),('bc1005_5p--bc1005_3p','barcode5'),('bc1006_5p--bc1006_3p','barcode6'),('bc1008_5p--bc1008_3p','barcode8'),('bc1012_5p--bc1012_3p','barcode12'),('bc1018_5p--bc1018_3p','barcode18')"
+```
+
+## Problem solving:
+```
+demux error:
+Traceback (most recent call last):
+  File "../test_dir/demux_by_barcode_groups.py", line 95, in <module>
+    regroup_sam_to_gff(args.pooled_sam, args.demux_count_file, args.output_prefix, out_group_dict, args.pooled_fastx)
+  File "../test_dir/demux_by_barcode_groups.py", line 76, in regroup_sam_to_gff
+    GFF.write_collapseGFF_format(handles[g], r)
+  File "/Network/Servers/avalanche.plb.ucdavis.edu/Volumes/Mammoth/Users/hongtaozhang/anaconda3/envs/naruto/lib/python3.7/site-packages/cupcake-9.0.1-py3.7-linux-x86_64.egg/cupcake/io/GFF.py", line 520, in write_collapseGFF_format
+    f.write("{chr}\tPacBio\ttranscript\t{s}\t{e}\t.\t{strand}\t.\tgene_id \"{gid}\"; transcript_id \"{tid}\";\n".format(chr=r.chr, s=r.start+1, e=r.end, strand=r.strand,gid=r.geneid, tid=r.seqid))
+AttributeError: 'GMAPSAMRecord' object has no attribute 'geneid'
+
+How I debug:
+nano /Network/Servers/avalanche.plb.ucdavis.edu/Volumes/Mammoth/Users/hongtaozhang/anaconda3/envs/naruto/lib/python3.7/site-packages/cupcake-9.0.1-py3.7-linux-x86_64.egg/cupcake/io/GFF.py
+
+control+W : 520 #find the 520th line
+
+change : 
+def write_collapseGFF_format(f, r):
+	    f.write("{chr}\tPacBio\ttranscript\t{s}\t{e}\t.\t{strand}\t.\tgene_id \"{gid}\"; transcript_id \"{tid}\";\n".format(chr=r.chr, s=r.start+1, e=r.end, strand=r.strand,gid=r.geneid, tid=r.seqid))
+	    for exon in r.ref_exons:
+	        f.write("{chr}\tPacBio\texon\t{s}\t{e}\t.\t{strand}\t.\tgene_id \"{gid}\"; transcript_id \"{tid}\";\n".format(chr=r.chr, s=exon.start+1, e=exon.end, strand=r.strand, gid=r.geneid, tid=r.seqid))
+	    if r.cds_exons is not None:
+	        for exon in r.cds_exons:
+	            f.write("{chr}\tPacBio\tCDS\t{s}\t{e}\t.\t{strand}\t.\tgene_id \"{gid}\"; transcript_id \"{tid}\";\n".format(chr=r.chr, s=exon.start+1, e=exon.end, strand=r.strand, gid=r.geneid, tid=r.seqid))
+All the three gid=r.geneid in it into gid=r.qID (see 61st line in demux_by_barcode_groups.py)
+```
+
+# 5. SQANTI2 for Classifying Junctions
+## 5.1 Install additional required libraries:
+```{bash, eval = FALSE}
+conda install -n anaCogent3 -c bioconda pysam
+conda install -n anaCogent3 psutil
+conda install -n anaCogent3 biopython
+conda install -n anaCogent3 -c bioconda bx-python
+conda install -n anaCogent3 -c bioconda bcbiogff
+conda install -n anaCogent3 -c bioconda gffread
+```
+
+### 5.2.1 Download gtfToGenePred from UCSC Download Page 
+```{bash, eval = FALSE}
+rsync -aP rsync://hgdownload.soe.ucsc.edu/genome/admin/exe/linux.x86_64/gtfToGenePred ~/Packages/
+```
+
+### 5.2.2 Activate Bioconda channel 
+```{bash, eval = FALSE}
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+```
+
+### 5.2.3 Install gtfToGenePred
+```{bash, eval = FALSE}
+conda install ucsc-gtftogenepred
+conda update ucsc-gtftogenepred
+```
+
+### 5.2.4 Set path
+```{bash, eval = FALSE}
+export PATH=$PATH:~/Packages/gtfToGenePred
+export PYTHONPATH=$PYTHONPATH:~/Packages/cDNA_Cupcake/sequence/
+```
+
+## 5.3 Run SQANTI2
+```{bash, eval = FALSE}
+# For chained samples
+python sqanti_qc2.py -t 30 --gtf all_samples.chained.chr.gtf TAIR10_GFF3_genes.gtfToGenePred.gtf TAIR10_chr_all.chr.fa --fl_count all_samples.chained_count.txt 
+```
+
+### 5.3.1	(Before running SQANTI2) Download .gff reference annotation and convert them into .gtf (in R: “Hongtao_Pacbio.Rmd”)
+```{r, eval = FALSE}
+library(tidyverse)
+library(rtracklayer)
+gff <- import.gff("TAIR10_GFF3_genes.gff")
+gff$gene_id <- ifelse(is.na(gff$ID),gff$Parent,gff$ID)
+export(gff,"TAIR10_GFF3_genes.gtf",format ="gtf")
+```
+
+### 5.3.2 (optional) Generate TSS information:
+```{bash, eval = FALSE}
+awk '{if ($3 == "gene") print $3"\t"$4"\t"$5"\t"$7"\t"$10 ; else if ($3 == "pseudogene") print $3"\t"$4"\t"$5"\t"$7"\t"$10; else if ($3 == "transposable_element_gene") print $3"\t"$4"\t"$5"\t"$7"\t"$10;else if ($3 == "mRNA_TE_gene") print $3"\t"$4"\t"$5"\t"$7"\t"$10  }' TAIR10_GFF3_genes.gtf | less > all_gene.csv
+```
+
+### 5.3.3 Solve gtfToGenePred Problem: no ‘transctipt_id’ in TAIR10_GFF3_genes.gtf
+
+```{bash, eval = FALSE}
+awk '{if ($3 != "protein") print $0}' TAIR10_GFF3_genes.gtf | awk '{if ($3 != "CDS") print $0}' | awk '{print $0"; transcript_id "$10}' > TAIR10_GFF3_genes.gtfToGenePred.gtf
+
+# http://genomewiki.ucsc.edu/index.php/Genes_in_gtf_or_gff_format
+# https://github.com/jason-weirather/IDP/blob/master/utilities/gtf2genepred.py
+```
+
+### 5.4.1 Sqanti by demux.gff
+```{bash, eval = FALSE}
+# 1)  creating single barcode abundance/count file from demux_mapped_fl_count_w_genome.txt
+
+sed 's/,/\t/g' mapped_fl_count_w_genome.txt | awk '{print $1"\t"$2}' | sed 's/^id/pbid/' | sed 's/bc.*/count_fl/' > A_1_barcode_1/read_count_barcode_1.txt
+
+# 2) run sqanti
+python ../sqanti_qc2.py -t 30 --gtf ../A_1_output_demux_barcode1_only.gff ../TAIR10_GFF3_genes.gtfToGenePred.gtf ../TAIR10_chr_all.chr.fa --fl_count read_count_barcode_1.txt
+```
+
+### 5.4.2 Summarize known/novel canonical/noncanonical information
+```{bash, eval = FALSE}
+awk '{print $2"\t"$5"\t"$6"\t"$8"\t"$15}' A_1_output_demux_barcode1_only_junctions.txt | sort | uniq | awk '{print $4"\t"$5}' | sort | uniq -c | less
+```
+
+### 5.4.3 Summarize isoform category/subcategory information
+```{bash, eval = FALSE}
+awk '{print $6"\t"$14}' A_2_barcode_1/A_2_output_demux_barcode1_only_classification.txt | sort | uniq -c | awk '{print $1"\t"$2"\t"$3}' > A_2_barcode_1001.txt
+```
