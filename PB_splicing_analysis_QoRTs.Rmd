@@ -129,7 +129,7 @@ inputData/TAIR10_GFF3_genes.gtfToGenePred.jscs.modified.gtf \
 outputData_lima_modified_merged/
 ```
 
-## 7.	visualization by IGV
+## 7. Visualization by IGV
 ```{bash, eval = FALSE}
 samtools view -b A_2_Barcode18.flnc.fastq.sorted.sam > A_2_Barcode18.flnc.fastq.sorted.bam
 samtools index A_2_Barcode18.flnc.fastq.sorted.bam
