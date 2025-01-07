@@ -1,0 +1,137 @@
+---
+title: "QoRTs_analysis"
+output: html_document
+date: "2020-02-01"
+---
+
+# PacBio Data Analysis Notes - Splicing analysis
+## Part 1: Quantification via QoRTs
+
+### 6.1 Download demultiplexed lima files
+```{bash, eval = FALSE}
+get -r lima_output.bc1001_5p--bc1001_3p.bam # here is an example for library 1
+```
+
+### 6.2 Run Isoseq refine
+```{bash, eval = FALSE}
+source ~/.bashrc
+conda activate naruto # activate conda environment
+
+isoseq3 refine \
+A_1/lima_output.bc1001_5p--bc1001_3p.bam \ IsoSeq_Primers_12_Barcodes_v1.fasta \
+refine_A_1_Barcode1/A_1_Barcode1.flnc.bam \
+--require-polya
+```
+
+### 6.3 Map all .fastq files to reference genome
+```{bash, eval = FALSE}
+while read line; 
+do samtools bam2fq refine_$line/$line.flnc.bam > $line.flnc.fastq; 
+done < "uniqueID_col.txt"
+
+while read line
+do
+minimap2 -ax splice -t 30 -uf --secondary=no -C5 \
+~/Downloads/Reference_Genome/TAIR10_chr_all.chr.fa \
+$line.flnc.fastq > $line.flnc.fastq.sam
+```
+
+### Full workflow for all libraries:
+```{bash, eval = FALSE}
+while read line1 line2
+do mv $line1 $line2
+done < "A_2.id.txt"
+## Create an id.txt file to change file names with a loop
+
+source ~/.bashrc
+conda activate naruto
+
+while read line
+do
+mkdir refine_$line
+
+isoseq3 refine \
+lima_output/$line.bam \
+IsoSeq_Primers_12_Barcodes_v1.fasta \
+refine_$line/$line.flnc.bam \
+--require-polya
+
+samtools bam2fq refine_$line/$line.flnc.bam > $line.flnc.fastq
+ 
+minimap2 -ax splice -t 30 -uf --secondary=no -C5 \
+~/Downloads/Reference_Genome/TAIR10_chr_all.chr.fa \
+$line.flnc.fastq > $line.flnc.fastq.sam
+
+samtools sort $line.flnc.fastq.sam \
+-o $line.flnc.fastq.sorted.sam
+
+rm $line.flnc.fastq
+rm $line.flnc.fastq.sam
+
+done < "uniqueID/uniqueID_xct2.txt"
+```
+
+### 6.4 Prepare parameters for QoRTs
+#### Calculate max read length
+To adapt for long-read data, change –maxReadLength w/ the **exact** max read length for each library
+```{bash, eval = FALSE}
+ while read line
+ do echo $line 
+ cat inputData/$line.flnc.fastq.sorted.sam | awk '{ print $10 }' | awk '{print length}' | sort -n | tail -1 
+done < "inputData/uniqueID/uniqueID_col.txt" > inputData/max_read_length/max_col.txt
+```
+Remember to change the format of the output using $nano into: A_2_Barcode1”\t”14765
+
+#### Change max phred score
+Quality Values (Phred Score) refer to [Quality Values](https://github.com/PacificBiosciences/IsoSeq)
+
+### 6.5.1 Run QoRTs QC
+```{bash, eval = FALSE}
+java -jar ../QoRTsPipelineWalkthrough/softwareRelease/QoRTs.jar QC \
+--stranded \
+--maxPhredScore 93 \
+--keepMultiMapped \
+--singleEnded \
+--stranded_fr_secondstrand \
+--maxReadLength len \
+--runFunctions writeKnownSplices,writeNovelSplices,writeSpliceExon \
+inputData/A_1_Barcode1.flnc.fastq.sorted.sam \
+inputData/TAIR10_GFF3_genes.gtfToGenePred.gtf \
+outputData_lima/A_1_Barcode1/
+```
+
+### Full workflow for all libraries
+```{bash, eval = FALSE}
+while read line1 line2 
+do
+mkdir outputData_lima_modified/$line1
+java -jar ../QoRTsPipelineWalkthrough/softwareRelease/QoRTs.jar QC --stranded --maxPhredScore 93 --keepMultiMapped --singleEnded --stranded_fr_secondstrand --maxReadLength $line2 --runFunctions writeKnownSplices,writeNovelSplices,writeSpliceExon inputData/$line1.flnc.fastq.sorted.sam inputData/TAIR10_GFF3_genes.gtfToGenePred.jscs.modified.gtf outputData_lima_modified/$line1/ 
+done < "inputData/max_read_length/max_col.txt"
+```
+
+### 6.6 Merging Counts from Technical Replicates
+```{bash, eval = FALSE}
+java -jar ../QoRTsPipelineWalkthrough/softwareRelease/QoRTs.jar \
+mergeAllCounts \
+outputData_lima_modified/ \
+inputData/decoder.byUID.txt \
+outputData_lima_modified_merged/
+```
+
+### 6.7 Run QoRTS mergeNovelSplices
+```{bash, eval = FALSE}
+java -jar ../QoRTsPipelineWalkthrough/softwareRelease/QoRTs.jar \
+mergeNovelSplices \
+--stranded \
+outputData_lima_modified_merged/ \
+inputData/decoder.bySample.txt \
+inputData/TAIR10_GFF3_genes.gtfToGenePred.jscs.modified.gtf \
+outputData_lima_modified_merged/
+```
+
+## 7.	visualization by IGV
+```{bash, eval = FALSE}
+samtools view -b A_2_Barcode18.flnc.fastq.sorted.sam > A_2_Barcode18.flnc.fastq.sorted.bam
+samtools index A_2_Barcode18.flnc.fastq.sorted.bam
+```
+
