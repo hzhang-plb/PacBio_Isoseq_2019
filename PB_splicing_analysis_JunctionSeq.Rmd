@@ -1,0 +1,63 @@
+---
+title: "JunctionSeq_analysis"
+output: html_document
+date: "2020-05-23"
+---
+
+# PacBio Data Analysis Notes - Splicing analysis
+## Part 2: Statistical analysis via JunctionSeq
+
+### 7.1 Install package
+```{r}
+if (!requireNamespace("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+BiocManager::install("JunctionSeq")
+
+# Install JunctionSeq
+source("http://hartleys.github.io/JunctionSeq/install/JS.install.R")
+JS.install()
+install.packages("Hmisc") # select no
+
+# An example dataset, used in the vignette, is packaged as an R package, and can be installed with the command:
+install.packages("http://hartleys.github.io/JunctionSeq/install/JctSeqData_LATEST.tar.gz",
+                  repos = NULL,
+                  type="source")
+```
+
+### 7.2 Run JunctionSeq
+```{r}
+library(JunctionSeq)
+library(tidyverse)
+decoder <- read.table("QoRTs/decoder.bySample.txt", header=T, stringsAsFactors = F)   
+# this file include 2 lines: one named sample.ID with a unique name for each library; the other named Group.ID with the same name for all genotypes/treatments
+
+gff.file <- "/Users/zhanghongtao/Documents/LAB/HarmerLab/2020_Spring/Week4/QoRTs_5/withNovel.forJunctionSeq.gff.gz"
+countFiles <- paste0("/Users/zhanghongtao/Documents/LAB/HarmerLab/2020_Spring/Week4/QoRTs_5/",
+                     decoder$sample.ID[c(1:3,4:6)],  # this sets the pair of comparison
+                     "/QC.spliceJunctionAndExonCounts.withNovel.forJunctionSeq.txt.gz")
+
+jscs <- runJunctionSeqAnalyses(sample.files = countFiles,
+                               sample.names = decoder$sample.ID[c(1:3,4:6)],
+                               condition = factor(decoder$group.ID[c(1:3,4:6)]),
+                               flat.gff.file = gff.file,
+                               nCores = 1,
+                               analysis.type = "junctionsAndExons")
+
+writeSizeFactors(jscs, file = "all_sizeFactors_col_xct1_5.txt");
+
+# draw plots
+buildAllPlots(jscs=jscs,
+              outfile.prefix = "./plots_all_col_xct1_5/",
+              use.plotting.device = "png",
+              FDR.threshold = 0.05,
+              with.TX=FALSE,without.TX=FALSE,
+              expr.plot=FALSE,normCounts.plot=FALSE,rExpr.plot=FALSE,
+              minimalImageFilenames = FALSE)
+
+# write output files containing all necessary statistics for downstream analysis
+writeCompleteResults(jscs,
+                     outfile.prefix="./all_col_xct1_5_",
+                     FDR.threshold = 0.05,
+                     save.jscs = FALSE)
+```
+
