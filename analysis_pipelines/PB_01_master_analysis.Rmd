@@ -6,8 +6,7 @@ date: "2019-12-11"
 
 # PacBio Data Analysis Notes - Data formatting, mapping and SQANTI analysis
 
-```{}
-##	First, check the file structures. Here’s an example from Lib_A_2:
+###	First, check the file structures. Here’s an example from Lib_A_2:
 -rw-r--r-- 1 hongtaozhang root   31 Apr 13  2018 robots.txt
 -rw-r--r-- 1 hongtaozhang root 3.6K Dec 20 19:35 ccs.report.json
 -rw-r--r-- 1 hongtaozhang root 4.4G Dec 20 21:00 ccs.fastq.zip
@@ -22,7 +21,6 @@ date: "2019-12-11"
 -rw-r--r-- 1 hongtaozhang root 8.2M Dec 23 23:08 lq_transcripts.fasta
 -rw-r--r-- 1 hongtaozhang root 2.1K Dec 23 23:09 isoseq3.report.json
 -rw------- 1 hongtaozhang root 3.0K Jan  7 10:12 wget_index.html.tmp
-```
 
 # 1. Map reads (hq_transcripts.fastq) to reference genome 
 ## 1.1 Format data
